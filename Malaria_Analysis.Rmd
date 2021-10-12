@@ -1,0 +1,291 @@
+---
+title: "Malaria Analysis"
+output:
+  html_document:
+        keep_md: true
+---
+```{r}
+## importing libraries
+library(dplyr)
+library (readr)
+library(ggplot2)
+library(viridis)
+library(hrbrthemes)
+library(plotly)
+library(gapminder)
+```
+
+
+## Loading Data frames
+1. Malaria Deaths
+2. Malaria Deaths Age
+3. Malaria Incidence
+
+```{r}
+## loading dataframes
+load_malaria_death_df <- function(URL_death) {
+  malaria_deaths<-read_csv(url(URL_death), show_col_types = FALSE)
+  names(malaria_deaths)[length(names(malaria_deaths))]<-"deaths_per_100000_people" 
+  return(malaria_deaths)
+}
+load_malaria_death_age_df <- function(URL_death_age) {
+  malaria_deaths_age<-read_csv(url(URL_death_age),show_col_types = FALSE)
+  names(malaria_deaths_age)[2]<-"Entity" 
+  names(malaria_deaths_age)[4]<-"Year" 
+  return(malaria_deaths_age)
+}
+load_malaria_incidence_df <- function(URL_incidence) {
+  malaria_incidence<-read_csv(url(URL_incidence),show_col_types = FALSE)
+  names(malaria_incidence)[length(names(malaria_incidence))]<-"incidence_per_1000_people" 
+  return(malaria_incidence)
+}
+
+url_malaria_death="https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2018/2018-11-13/malaria_deaths.csv"
+url_malaria_deaths_age = "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2018/2018-11-13/malaria_deaths_age.csv"
+
+url_malaria_incidence = "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2018/2018-11-13/malaria_inc.csv"
+
+malaria_deaths <- load_malaria_death_df(url_malaria_death)
+malaria_deaths_age <- load_malaria_death_age_df(url_malaria_deaths_age)
+malaria_incidence <- load_malaria_incidence_df(url_malaria_incidence)
+```
+
+## Data Preprocessing and Exploration
+Check if there is any null values in the 3 datasets
+```{r}
+# deaths df
+names(which(sapply(malaria_deaths, function(x) any(is.na(x)))))
+# deaths age df
+names(which(sapply(malaria_deaths_age, function(x) any(is.na(x)))))
+# incidence df 
+names(which(sapply(malaria_incidence, function(x) any(is.na(x)))))
+```
+There is no missing value for entity, year and number of deaths or incidence. As for the missing 'code' fields, a better understanding of how the 'Entity' and 'code' fields are recorded will be needed to determine if there is a need to assign value to the missing fields. By looking at the unique values for Entity, malaria deaths and malaria death age datasets have the same list of values and it is a mixture of regions, countries and other ways of classification such as SDI level. Hence, there will be a need to reclassify these countries for a clearer analysis. 
+ 
+```{r}
+unique(malaria_deaths[c('Entity')])
+unique(malaria_deaths_age[c('Entity')])
+unique(malaria_incidence[c('Entity')])
+```
+Before classifying the countries into specified regions, I combined the 3 datasets.
+```{r}
+combine_datasets <- function(malaria_death, malaria_death_age, malaria_incidence_rate){
+  combined_death_df_1 <- merge(malaria_death_age[c('Entity','Year','age_group','deaths')], malaria_death, by=c("Entity","Year"))
+  combined_death_df_2 <- merge(combined_death_df_1, malaria_incidence_rate[c('Entity','Year','incidence_per_1000_people')], by=c("Entity","Year"), all.x = TRUE)
+  return(combined_death_df_2)
+}
+
+combined_death_df <- combine_datasets (malaria_deaths, malaria_deaths_age, malaria_incidence)
+head(combined_death_df)
+```
+Next, I made used of regions specified by WHO for the grouping. The list of countries in each WHO regions can be found here https://en.wikipedia.org/wiki/List_of_WHO_regions. 
+
+```{r}
+# getting countries in each region by WHO
+# Eastern Mediterranean Region
+EMR_countries <- c('Afghanistan', 'Bahrain', 'Djibouti', 'Egypt', 'Iran', 'Iraq', 'Jordan', 'Kuwait', 'Lebanon', 'Libya', 'Morocco', 'Oman', 'Pakistan', 'Palestine', 'Qatar', 'Saudi Arabia', 'Somalia', 'Sudan', 'Syria', 'Tunisia', 'United Arab Emirates', 'Yemen')
+
+# European Region
+EUR_countries <- c('Albania', 'Andorra', 'Armenia', 'Austria', 'Azerbaijan', 'Belarus', 'Belgium',' Bosnia and Herzegovina', 'Bulgaria', 'Croatia', 'Cyprus', 'Czech Republic', 'Denmark', 'Estonia', 'Finland', 'France', 'Georgia', 'Germany', 'Greece', 'Hungary', 'Iceland', 'Ireland', 'Israel', 'Italy', 'Kazakhstan', 'Kyrgyzstan', 'Latvia', 'Lithuania', 'Luxembourg', 'Malta', 'Moldova', 'Monaco', 'Montenegro', 'Netherlands', 'Macedonia', 'Norway', 'Poland', 'Portugal', 'Romania', 'Russia', 'San Marino', 'Serbia', 'Slovakia', 'Slovenia', 'Spain', 'Sweden', 'Switzerland', 'Tajikistan', 'Turkey', 'Turkmenistan', 'Ukraine', 'United Kingdom', 'Uzbekistan','Bosnia and Herzegovina')
+
+# Western Pacific Region
+WPR_countries <- c('Australia', 'Brunei', 'Cambodia', 'China', 'Cook Islands', 'Fiji', 'Japan', 'Kiribati', 'Laos', 'Malaysia', 'Marshall Islands', 'Micronesia (country)', 'Mongolia', 'Nauru', 'New Zealand', 'Niue', 'Palau', 'Papua New Guinea', 'Philippines', 'South Korea', 'Samoa', 'Singapore','Solomon Islands', 'Tonga', 'Tuvalu', 'Vanuatu', 'Vietnam', 'Guam')
+
+# African Region
+AFR_countries <- c('Algeria', 'Angola', 'Benin', 'Botswana', 'Burkina Faso', 'Burundi', 'Cameroon', 'Cape Verde', 'Central African Republic', 'Chad', 'Comoros', 'Ivory Coast', 'Democratic Republic of the Congo', 'Equatorial Guinea', 'Eritrea', 'Ethiopia', 'Gabon', 'Gambia', 'Ghana', 'Guinea', 'Guinea-Bissau', 'Kenya', 'Lesotho', 'Liberia', 'Madagascar', 'Malawi', 'Mali', 'Mauritania', 'Mauritius', 'Mozambique', 'Namibia', 'Niger', 'Nigeria', 'Rwanda', 'Sao Tome and Principe', 'Senegal', 'Seychelles', 'Sierra Leone', 'South Africa', 'South Sudan', 'Eswatini', 'Togo', 'Uganda', 'Tanzania', 'Zambia', 'Zimbabwe','Congo','Swaziland',"Cote d'Ivoire","Democratic Republic of Congo")
+
+# Region of the Americas
+AMR_countries <- c('Antigua and Barbuda', 'Argentina', 'Bahamas', 'Barbados', 'Belize', 'Bolivia', 'Brazil', 'Canada', 'Chile', 'Colombia', 'Costa Rica', 'Cuba', 'Dominica', 'Dominican Republic', 'Ecuador', 'El Salvador', 'Grenada', 'Guatemala', 'Guyana', 'Haiti', 'Honduras', 'Jamaica', 'Mexico', 'Nicaragua', 'Panama', 'Paraguay', 'Peru', 'Saint Kitts and Nevis', 'Saint Lucia', 'Saint Vincent and the Grenadines', 'Suriname', 'Trinidad and Tobago', 'United States', 'Uruguay', 'Venezuela','Puerto Rico')
+
+# South-East Asian Region
+SEAR_countries <- c('Bangladesh', 'Bhutan', 'North Korea', 'India', 'Indonesia', 'Maldives', 'Myanmar', 'Nepal', 'Sri Lanka', 'Thailand', 'Timor')
+
+regroup_countries <- function(df, EMR_countries, EUR_countries, WPR_countries, AFR_countries, AMR_countries, SEAR_countries) {
+  df_assigned <- df %>%
+    mutate(region = case_when(
+      Entity %in% EMR_countries ~ "EMR",
+      Entity %in% EUR_countries ~ "EUR",
+      Entity %in% WPR_countries ~ "WPR",
+      Entity %in% AFR_countries ~ "AFR",
+      Entity %in% AMR_countries ~ "AMR",
+      Entity %in% SEAR_countries ~ "SEAR",
+      Entity == "World" ~ "World"
+    ))
+  return(df_assigned)
+}
+
+# assigning each of the rows to a region
+combined_death_df_assigned <- regroup_countries(combined_death_df, EMR_countries, EUR_countries, WPR_countries, AFR_countries, AMR_countries, SEAR_countries)
+  
+head(combined_death_df_assigned)
+
+```
+Checking if there are any outliers or erroneous data recorded by looking at the data excluding regional and global statistics,
+```{r}
+df_filtered = combined_death_df_assigned[which(!is.na(combined_death_df_assigned$region) & (combined_death_df_assigned$region != 'World')),]
+print(summary(df_filtered[c('deaths')]))
+print(summary(df_filtered[c('deaths_per_100000_people')]))
+print(summary(df_filtered[c('incidence_per_1000_people')]))
+
+# turkey is the country
+head(df_filtered[order(-df_filtered$incidence_per_1000_people),])
+```
+Maximum incidence per 1000 people is at 1741 which could possibly be an erroneous data. Turkey is the country with the maximum incidence per 1000 people recorded in 2000. Hence, I replaced the values with the mean incidence per 1000 people for its region (EUR) for the same year. 
+```{r}
+replace_error_incidence_value <- function(df, country, Region){
+  
+  # filter out data in the same region but not Turkey
+  reg_df_filtered <- df[which(df$region == Region & df$Entity != country),]
+  
+  # remove NA values since there are only 4 years of data recorded for incidence
+  reg_df_filtered = reg_df_filtered[!is.na(reg_df_filtered$incidence_per_1000_people),]
+  
+  # fill missing values with the mean incidence of the region in the same year
+  reg_agg = aggregate(reg_df_filtered$incidence_per_1000_people, by=list(year=reg_df_filtered$Year), FUN=mean)
+  
+  # loop to replace value, there is only 4 years being recorded
+  for(i in 1:nrow(df)){
+    if((df$Entity[i]== country) & (df$Year[i]==2000)){
+        df$incidence_per_1000_people[i]= reg_agg[which(reg_agg$year == "2000"), 2]
+    }
+  }
+  return(df)
+}
+
+df_filtered_replaced = replace_error_incidence_value(combined_death_df_assigned, 'Turkey', 'EUR')
+head(df_filtered_replaced)
+```
+
+## Visualisation 1
+
+Firstly, a plot of the average number of deaths caused by Malaria across regions over time is shown to obtain a general idea of how severe Malaria is globally and how the average number of deaths changes over time. 
+```{r}
+# plot deaths across region over time
+plot_deaths_over_time <- function(df){
+  
+  # getting only regions and world data out
+  filtered_df <- df[which(!is.na(df$region)),] 
+  
+  agg_df <- aggregate(filtered_df$deaths_per_100000_people, by=list( year=filtered_df$Year, region=filtered_df$region), FUN=mean)
+  p <- ggplot(agg_df, aes(x = year, y = x, color = region)) +
+  geom_line() +
+  ggtitle("Plot of Average Number of Deaths per 100,000 People Across Regions Over Time") +
+  xlab("Year") + 
+  ylab("Average Number of Deaths per 100,000 People")
+  ggplotly(p, height = 500, width=1000)
+}
+
+plot_deaths_over_time((df_filtered_replaced))
+```
+From the plot above, the general trend of the average number of deaths per 100,000 people can be observed for the different regions over time. In comparison with the World's average, the average number of deaths per 100,000 people in African Region (AFR) is consistently higher, even though it is experiencing a downwards trend now. This could be due to the improvement in medical support in Africa. This extent of decrease in the average number of deaths for AFR is higher than that of the World's as well as the other regions. In fact, the average number of deaths in other regions remains relatively constant over the years, except for Western Pacific Region (WPR) where there is also a fall in the average number of death cases too. Interestingly, for WPR and AFR, there seem to be an increase in the number of deaths per 100,000 people in the early 2000 before experiencing a fall from 2004 onwards. Since the average number of deaths in AFR is still very high, greater emphasis should be placed on AFR region to further improve the medical support for Malaria condition, decreasing the number of deaths even more. 
+
+## Visualisation 2
+
+This visualization aims to understand which age group is the most vulnerable to Malaria and how the effect of this condition on the different age groups changes over time. By knowing this information as well as the top countries with the highest number of deaths, we can gauge the effectiveness of the measures implemented and also better allocate resources to the right audience to tackle this issue more urgently.
+
+```{r,fig.width=16, fig.height=10}
+plot_top_entities_deaths_by_age <- function(df, n){
+  
+  # getting only countries data
+  filtered_df <- df[which(df$region != 'World' & !is.na(df$region)),]
+  
+  agg_df <- aggregate(filtered_df$deaths, by=list(Entity=filtered_df$Entity, age_group=filtered_df$age_group,Year=filtered_df$Year), FUN=mean)
+
+  # getting the top n countries for each age group in the respective years
+  data <-  as_tibble(agg_df) %>%
+     group_by(Year, age_group) %>%
+     arrange(x, .by_group = TRUE) %>%
+     top_n(n) 
+
+  p <- ggplot(data, aes(fill=Entity, y=x, x=Year)) + 
+    geom_area(position="stack", stat="identity") +
+    ggtitle(paste("Top" ,as.character(n),"Countries with Highest Number of Deaths By Age Group Over Time", sep =" ")) +
+    facet_wrap(~age_group) +
+    theme(legend.position="right",
+          plot.title = element_text(size=16),
+          text = element_text(size=8),
+          legend.text = element_text(size=8)) +
+    xlab("Year") +
+    ylab("Number of Deaths")+
+    guides(fill=guide_legend(title="Country"))
+  
+    
+  ggplotly(p,height = 800, width=1000)
+  
+}
+
+plot_top_entities_deaths_by_age(df_filtered_replaced, 10)
+```
+From the plot above, there are few key insights we can derive. 
+
+1. Among the different age groups, malaria is the most severe for patients under 5 as it causes the most number of deaths as compared to the other age groups. The next age group with relatively higher number of deaths is 5-14. Hence, we can see that malaria is more deadly for children below 14.
+
+2. However, we can also see that the number of deaths for age group 'under 5' and '5-14' have been decreasing since 2008 which is a good sign of improvement in the medical support or solutions to tackle malaria around the world. On the other hand, there seem to be a slight increase in the number of deaths for age group '50-69' and '70 or older'. While we continue to decrease the number of deaths caused by Malaria for children and teenagers, patients above 50 should not be neglected as well. Even though the number of deaths for patient above 50 remains low, the rising trend is still worth to note.
+
+3. For age group 'under 5' and '5-14', large proportion of deaths comes from Nigeria, Democratic Republic of Congo, India and Uganda. Although there is a downward trend in the number of deaths for these regions, more has to be done especially for Nigeria as the number of deaths is a lot higher than the other regions - about 5 times higher than that in India and Uganda. Even though there is a high number of deaths in Democratic Republic of Congo, India and Uganda, the Malaria condition is not as severe given that the decrease in the number of deaths over time is larger than that of Nigeria. Hence, more attention should be given to tackling Malaria in Nigeria, especially for age group 'under 5'. 
+
+## Visualisation 3
+
+Besides knowing the death rates of Malaria, the incidence rate in each country over time should also be understood to have a clearer idea of the likelihood of being infected. This allows a more effective comparison against death rates and see if there is indeed an improvement in the condition.
+
+```{r}
+# plot Malaria Incidence in each country over time
+textcol <- "grey40"
+
+plot_incidence_over_time <- function(df){
+  # getting only countries in WHO and with incidence per 1000 people above 0
+  filtered_df <- df[which((!is.na(df$region)) 
+                          & (!is.na(df$incidence_per_1000_people)) 
+                          & (df$region != "World") 
+                          & (df$incidence_per_1000_people > 0) 
+                            ),] 
+  unique_rows <- unique(filtered_df[c('Entity','Year','incidence_per_1000_people')])
+  
+  # change to percentage
+  unique_rows_percentage <- unique_rows %>%
+    mutate(incidence_percentage = round(incidence_per_1000_people / 10, 2)) 
+  
+  # reverse the order for y axis labels
+  unique_rows_percentage$Entity <- with(unique_rows_percentage,factor(Entity,levels = rev(sort(unique(Entity)))))
+  
+  p <- ggplot(unique_rows_percentage, aes(x = Year, y = Entity, fill = incidence_percentage)) +
+  geom_tile(color = "white", size = 0.2) +
+  scale_fill_gradient(low = "white", high = "red") +
+  geom_text(aes(label = incidence_percentage), color = "black", size = 2) +
+  ggtitle("Incidence Percentage of Malaria Across Countries Over Time") +
+  theme_grey(base_size=10)+
+  theme(legend.position="right",legend.direction="vertical",
+        legend.title=element_text(colour=textcol),
+        legend.margin=margin(grid::unit(0,"cm")),
+        legend.text=element_text(colour=textcol,size=7,face="bold"),
+        legend.key.height=grid::unit(0.8,"cm"),
+        legend.key.width=grid::unit(0.2,"cm"),
+        axis.text.x=element_text(size=10,colour=textcol),
+        axis.text.y=element_text(vjust=0.2,colour=textcol),
+        axis.ticks=element_line(size=0.4),
+        plot.background=element_blank(),
+        panel.border=element_blank(),
+        plot.margin=margin(0.7,0.4,0.1,0.2,"cm"),
+        plot.title=element_text(colour=textcol,hjust=0,size=14,face="bold"))+
+  xlab("Year") +
+  ylab("Country")
+  ggplotly(p, height = 1200, width=1000)
+}
+
+plot_incidence_over_time((df_filtered_replaced))
+
+```
+
+
+From the heatmap above, there are a few main insights that we can derive as well. 
+
+1. Generally, the incidence rate of Malaria has improved over time for all regions as we can see that generally most countries have incidence rate below 20% in 2015. Some exceptions include Togo with 34% and Burkina Faso with 39% in 2015. Even for these countries, we can see that the incidence rate in 2015 is lower than that in 2000, suggesting an improvement. 
+
+2. Most countries with low incidence rates below 10% in 2000 remain below 10% over the years as well. Generally, there is no worsening of Malaria condition in any of these countries which is a good sign. 
+
+3. While most countries experience a fall in the incidence rate, there are a few regions that have experienced a greater decrease. Ethiopia had an incidence rate of 66% in 2000 and it fell to 5.86% in 2015 which is a great improvement, suggesting that the measures implemented have effectively curb with the number of Malaria cases. Another country that has experienced a drastic fall is Timor with 48% incidence rate in 2000 and 0.02% incidence rate in 2015. 
+
+4. However, there are some countries like Burkina Faso, Cote d'Ivoire, Domestic Republic of Congo, Guinea, Niger, Nigeria and Uganda which still have high incidence rate above 20% in 2015 despite it being lower than that in 2000. This suggests that more effort have to be allocated to these regions to further bring down the incidence rate. 
+
+5. Lastly, incidence rate of Malaria remains constant in Mali, suggesting that effective measures may not have been implemented to decrease the cases. More attention and resources should be given to Mali to better tackle the issue.
+
